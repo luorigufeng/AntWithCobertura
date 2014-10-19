@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="hdfs_poster" basedir="." default="zip">
+
+  <!-- Global properties for the build -->
+  <property name="jar-name" value="hdfs_poster.jar" />
+  <property name="lib-dir" value="${basedir}/lib" />
+  <property name="src-dir" value="${basedir}/src" />
+  <property name="resources-dir" value="${src-dir}/main/resources" />
+  <property name="src-java-dir" value="${src-dir}/main/java" />
+  <property name="src-test-dir" value="${src-dir}/test/java" />
+  <property name="build-dir" value="${basedir}/target" />
+  <property name="build-class-dir" value="${build-dir}/classes/" />
+  <property name="build-java-dir" value="${build-class-dir}/java" />
+  <property name="build-test-dir" value="${build-class-dir}/test" />
+  <property name="instrumented-dir" value="${build-class-dir}/instrumented-cobertura" />
+  <property name="report-dir" value="${build-dir}/report" />
+  <property name="cobertura.ser" value="${basedir}/target/cobertura.ser" />
+
+  <path id="cobertura.classpath">
+    <fileset dir="${lib-dir}/cobertura">
+      <include name="*.jar" />
+    </fileset>
+  </path>
+
+  <taskdef classpathref="cobertura.classpath" resource="tasks.properties" />
+
+  <target name="prepare">
+    <mkdir dir="${build-dir}" />
+    <mkdir dir="${build-java-dir}" />
+    <mkdir dir="${build-test-dir}" />
+    <delete>
+      <fileset dir="${build-dir}">
+        <include name="**/*.*" />
+      </fileset>
+    </delete>
+  </target>
+
+  <target name="compile-src.main" depends="prepare">
+    <javac srcdir="${src-java-dir}" destdir="${build-java-dir}"
+      encoding="UTF-8" debug="true">
+      <classpath>
+        <fileset dir="${lib-dir}" />
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="compile-src.test" depends="prepare,compile-src.main">
+    <javac srcdir="${src-test-dir}" destdir="${build-test-dir}"
+      encoding="UTF-8">
+      <classpath>
+        <fileset dir="${lib-dir}" />
+        <pathelement location="${build-java-dir}" />
+      </classpath>
+    </javac>
+  </target>
+
+  <target name="instrument" depends="prepare,compile-src.main">
+    <!-- Remove the coverage data file and any old instrumentation. -->
+    <delete file="${cobertura.ser}" />
+    <delete dir="${instrumented-dir}" />
+
+    <cobertura-instrument todir="${instrumented-dir}"  datafile="${cobertura.ser}">
+      <ignore regex="org.apache.log4j.*" />
+      <fileset dir="${build-java-dir}">
+        <include name="**/*.class" />
+        <exclude name="**/*Test.class" />
+      </fileset>
+    </cobertura-instrument>
+
+  </target>
+
+  <target name="testWithJUnit" depends="instrument,compile-src.test">
+    <mkdir dir="${report-dir}/junit-xml" />
+
+    <junit fork="yes" dir="${basedir}" printsummary="yes" haltonerror="yes" haltonfailure="yes" showoutput="yes" includeantruntime="true">
+      <sysproperty key="net.sourceforge.cobertura.datafile" file="${cobertura.ser}" />
+
+      <!-- Note the classpath order: instrumented classes are before the 
+           original (uninstrumented) classes. This is important. -->
+      <classpath location="${instrumented-dir}" />
+
+      <classpath refid="cobertura.classpath" />
+
+      <classpath>
+        <fileset dir="${lib-dir}">
+          <include name="*.jar" />
+        </fileset>
+        <pathelement location="${build-test-dir}" />
+      </classpath>
+
+      <formatter type="xml" />
+      <batchtest todir="${report-dir}/junit-xml" unless="testcase">
+        <fileset dir="${src-test-dir}">
+          <include name="**/*Test.java" />
+        </fileset>
+      </batchtest>
+    </junit>
+
+    <!--generate the report -->
+    <mkdir dir="${report-dir}/junit-html" />
+    <junitreport todir="${report-dir}/junit-html">
+      <fileset dir="${report-dir}/junit-xml">
+        <include name="TEST-*.xml" />
+      </fileset>
+      <report todir="${report-dir}/junit-html" />
+    </junitreport>
+
+  </target>
+
+  <target name="coverage-report-html">
+    <mkdir dir="${report-dir}/cobertura-html" />
+    <cobertura-report datafile="${cobertura.ser}"
+      destdir="${report-dir}/cobertura-html">
+      <fileset dir="${src-java-dir}">
+        <include name="**/*.java" />
+      </fileset>
+    </cobertura-report>
+
+    <cobertura-report format="xml"
+      destdir="${report-dir}/cobertura-html" datafile="${cobertura.ser}">
+      <fileset dir="${src-java-dir}">
+        <include name="**/*.java" />
+      </fileset>
+      <fileset dir="${src-test-dir}">
+        <include name="**/*.java" />
+      </fileset>
+    </cobertura-report>
+  </target>
+
+  <target name="coverage"
+    depends="compile-src.main,instrument,testWithJUnit,coverage-report-html"
+    description="Compile, instrument ourself, run the tests and generate JUnit and coverage reports." />
+
+  <target name="jar" depends="coverage" description="Create jar and MANIFEST.MF">
+    <pathconvert property="libs.project" pathsep=" ">
+      <mapper>
+        <chainedmapper>
+          <flattenmapper />
+          <globmapper from="*" to="lib/*" />
+        </chainedmapper>
+      </mapper>
+      <path>
+        <fileset dir="lib">
+          <include name="**/*.jar" />
+        </fileset>
+      </path>
+    </pathconvert>
+    <jar jarfile="${build-dir}/${jar-name}" basedir="${build-java-dir}">
+      <manifest>
+        <attribute name="Main-Class" value="com.chinacache.log.main.GameStart" />
+        <attribute name="Class-Path" value=". conf/ ${libs.project}" />
+      </manifest>
+    </jar>
+    <delete dir="${build-class-dir}" />
+  </target>
+
+  <target name="zip" depends="jar">
+    <mkdir dir="${build-dir}/conf" />
+
+    <zip zipfile="${build-dir}/hdfsPoster.zip" basedir="${build-dir}"
+      excludes="report/" />
+
+    <delete includeemptydirs="true">
+      <fileset dir="${build-dir}">
+        <exclude name="**/*.zip" />
+        <exclude name="*report/" />
+      </fileset>
+    </delete>
+
+  </target>
+
+</project>  
